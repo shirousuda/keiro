@@ -178,7 +178,22 @@
         <div id="map"></div>
         <div id="riskScore" class="risk-score"></div>
     </div>
-
+    <footer class="footer mt-auto py-3 bg-light">
+        <div class="container">
+            <div class="row">
+                <div class="col-12">
+                    <h5>出典情報</h5>
+                    <ul class="list-unstyled">
+                        <li>交通事故データ: <a href="https://www.npa.go.jp/" target="_blank">警察庁交通事故統計</a>（加工して利用）</li>
+                        <li>地図データ: <a href="https://www.openstreetmap.org/" target="_blank">OpenStreetMap contributors</a></li>
+                        <li>道路ネットワークデータ: <a href="https://www.openstreetmap.org/" target="_blank">OpenStreetMap contributors</a></li>
+                    </ul>
+                    <p class="text-muted">© 2024 Keiro Project</p>
+                </div>
+            </div>
+        </div>
+    </footer>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
     <script>
         // 地図の初期化
         var map = L.map('map').setView([35.7750, 139.8047], 14);  // 足立区の中心座標
