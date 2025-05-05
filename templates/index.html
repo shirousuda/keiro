@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>足立区の安全な経路検索</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
+    <style>
+        body {
+            font-family: 'Helvetica Neue', Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            color: #666;
+        }
+        input[type="text"] {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        button {
+            background-color: #4CAF50;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            width: 100%;
+            font-size: 16px;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        #map {
+            height: 500px;
+            margin-top: 20px;
+            border-radius: 4px;
+        }
+        .risk-score {
+            margin-top: 20px;
+            padding: 15px;
+            background-color: #f8f9fa;
+            border-radius: 4px;
+            text-align: center;
+        }
+        .route-candidate {
+            margin: 10px 0;
+            padding: 10px;
+            background-color: #fff;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        .route-candidate h4 {
+            margin: 0 0 10px 0;
+            color: #333;
+        }
+        .route-candidate div {
+            margin: 5px 0;
+            color: #666;
+        }
+        .risk-score.high {
+            background-color: #ffebee;
+            color: #c62828;
+        }
+        .risk-score.medium {
+            background-color: #fff3e0;
+            color: #ef6c00;
+        }
+        .risk-score.low {
+            background-color: #e8f5e9;
+            color: #2e7d32;
+        }
+        .map-instructions {
+            margin-top: 10px;
+            padding: 10px;
+            background-color: #e3f2fd;
+            border-radius: 4px;
+            color: #1565c0;
+        }
+        .legend {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            background: white;
+            padding: 10px;
+            border-radius: 4px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            z-index: 1000;
+        }
+        .legend-item {
+            display: flex;
+            align-items: center;
+            margin-bottom: 5px;
+        }
+        .legend-color {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            margin-right: 8px;
+            background-color: #ff0000;
+            animation: blink 1s infinite;
+            box-shadow: 0 0 5px rgba(255, 0, 0, 0.5);
+        }
+        @keyframes blink {
+            0% { 
+                opacity: 1;
+                transform: scale(1);
+            }
+            50% { 
+                opacity: 0.3;
+                transform: scale(0.8);
+            }
+            100% { 
+                opacity: 1;
+                transform: scale(1);
+            }
+        }
+        .slider-labels {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 5px;
+            color: #666;
+            font-size: 0.9em;
+        }
+        input[type="range"] {
+            width: 100%;
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>足立区の安全な経路検索</h1>
+        <div class="form-group">
+            <label for="start">出発地点（緯度,経度）:</label>
+            <input type="text" id="start" placeholder="例: 35.6812,139.7671" readonly>
+        </div>
+        <div class="form-group">
+            <label for="end">到着地点（緯度,経度）:</label>
+            <input type="text" id="end" placeholder="例: 35.6895,139.6917" readonly>
+        </div>
+        <div class="form-group">
+            <label for="alpha">リスクの重み: <span id="alphaValue">100</span></label>
+            <input type="range" id="alpha" min="0" max="500" value="100" step="1" 
+                   oninput="document.getElementById('alphaValue').textContent = this.value">
+            <div class="slider-labels">
+                <span>距離重視 (0)</span>
+                <span>安全重視 (500)</span>
+            </div>
+        </div>
+        <div class="map-instructions">
+            地図上をクリックして出発地点と到着地点を指定してください。
+        </div>
+        <button id="searchButton">経路を検索</button>
+        <div id="map"></div>
+        <div id="riskScore" class="risk-score"></div>
+    </div>
+
+    <script>
+        // 地図の初期化
+        var map = L.map('map').setView([35.7750, 139.8047], 14);  // 足立区の中心座標
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap contributors'
+        }).addTo(map);
+
+        // 足立区の境界（概算）
+        var adachiBounds = L.latLngBounds(
+            [35.72, 139.75],  // 南西の境界
+            [35.83, 139.85]   // 北東の境界
+        );
+        map.setMaxBounds(adachiBounds);
+        map.setMinZoom(13);  // 最小ズームレベルを設定
+
+        // 凡例の追加
+        var legend = L.control({position: 'bottomright'});
+        legend.onAdd = function(map) {
+            var div = L.DomUtil.create('div', 'legend');
+            div.innerHTML = '<div class="legend-item"><div class="legend-color"></div>事故発生箇所</div>';
+            return div;
+        };
+        legend.addTo(map);
+
+        // 事故ポイントのレイヤー
+        var accidentLayer = L.layerGroup().addTo(map);
+
+        // 事故データを取得して表示
+        fetch('/get_accident_points')
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    console.error('Error:', data.error);
+                    return;
+                }
+                
+                // 事故ポイントをマーカーとして表示
+                data.points.forEach(point => {
+                    var marker = L.circleMarker([point.lat, point.lng], {
+                        radius: 6,
+                        fillColor: '#ff0000',
+                        color: '#fff',
+                        weight: 2,
+                        opacity: 1,
+                        fillOpacity: 0.8
+                    }).addTo(accidentLayer);
+
+                    // 点滅アニメーションを追加
+                    var opacity = 0.8;
+                    var size = 6;
+                    var increasing = false;
+                    setInterval(function() {
+                        if (increasing) {
+                            opacity += 0.05;
+                            size += 0.2;
+                            if (opacity >= 0.8) {
+                                opacity = 0.8;
+                                size = 8;
+                                increasing = false;
+                            }
+                        } else {
+                            opacity -= 0.05;
+                            size -= 0.2;
+                            if (opacity <= 0.3) {
+                                opacity = 0.3;
+                                size = 6;
+                                increasing = true;
+                            }
+                        }
+                        marker.setStyle({
+                            fillOpacity: opacity,
+                            radius: size
+                        });
+                    }, 100);
+                });
+            })
+            .catch(error => {
+                console.error('Error loading accident points:', error);
+            });
+
+        // マーカーと経路のポリライン
+        var startMarker = null;
+        var endMarker = null;
+        var routeLine = null;
+
+        // クリックイベントの処理
+        var isStartPoint = true;
+        map.on('click', function(e) {
+            const lat = e.latlng.lat;
+            const lng = e.latlng.lng;
+            
+            if (isStartPoint) {
+                // 出発地点の設定
+                if (startMarker) {
+                    map.removeLayer(startMarker);
+                }
+                startMarker = L.marker(e.latlng, {
+                    icon: L.divIcon({
+                        className: 'start-marker',
+                        html: '<div style="background-color: #4CAF50; width: 12px; height: 12px; border-radius: 50%; border: 2px solid white;"></div>'
+                    })
+                }).addTo(map);
+                document.getElementById('start').value = `${lat.toFixed(4)},${lng.toFixed(4)}`;
+                isStartPoint = false;
+            } else {
+                // 到着地点の設定
+                if (endMarker) {
+                    map.removeLayer(endMarker);
+                }
+                endMarker = L.marker(e.latlng, {
+                    icon: L.divIcon({
+                        className: 'end-marker',
+                        html: '<div style="background-color: #8B4513; width: 12px; height: 12px; border-radius: 50%; border: 2px solid white;"></div>'
+                    })
+                }).addTo(map);
+                document.getElementById('end').value = `${lat.toFixed(4)},${lng.toFixed(4)}`;
+                isStartPoint = true;
+            }
+        });
+
+        function searchRoute() {
+            console.log('searchRoute function called');
+
+            // 入力値の取得
+            const start = document.getElementById('start').value.split(',').map(Number);
+            const end = document.getElementById('end').value.split(',').map(Number);
+            const alpha = parseInt(document.getElementById('alpha').value);
+
+            console.log('Start point:', start);
+            console.log('End point:', end);
+            console.log('Alpha value:', alpha);
+
+            // 入力値の検証
+            if (start.length !== 2 || end.length !== 2) {
+                alert('緯度と経度を正しい形式で入力してください。');
+                return;
+            }
+
+            // APIリクエスト
+            console.log('Sending API request...');
+            fetch('/search_route', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    start_point: start,
+                    end_point: end,
+                    alpha: alpha
+                })
+            })
+            .then(response => {
+                console.log('Response received:', response);
+                return response.json();
+            })
+            .then(data => {
+                console.log('Data received:', data);
+                if (data.error) {
+                    alert(data.error);
+                    return;
+                }
+
+                // 既存の経路を削除
+                if (routeLine) {
+                    map.removeLayer(routeLine);
+                }
+
+                // 最適な経路を描画
+                routeLine = L.polyline(data.best_route.route, {
+                    color: 'blue',
+                    weight: 3
+                }).addTo(map);
+
+                // 実際に使用されたノードを表示
+                if (data.start_node && data.end_node) {
+                    // 既存のマーカーを削除
+                    if (startMarker) {
+                        map.removeLayer(startMarker);
+                    }
+                    if (endMarker) {
+                        map.removeLayer(endMarker);
+                    }
+                    
+                    // 実際のノード位置にマーカーを表示
+                    startMarker = L.marker([data.start_node.lat, data.start_node.lng], {
+                        icon: L.divIcon({
+                            className: 'start-marker',
+                            html: '<div style="background-color: #4CAF50; width: 12px; height: 12px; border-radius: 50%; border: 2px solid white;"></div>'
+                        })
+                    }).addTo(map);
+                    
+                    endMarker = L.marker([data.end_node.lat, data.end_node.lng], {
+                        icon: L.divIcon({
+                            className: 'end-marker',
+                            html: '<div style="background-color: #8B4513; width: 12px; height: 12px; border-radius: 50%; border: 2px solid white;"></div>'
+                        })
+                    }).addTo(map);
+                    
+                    // 入力フィールドの値を更新
+                    document.getElementById('start').value = `${data.start_node.lat.toFixed(4)},${data.start_node.lng.toFixed(4)}`;
+                    document.getElementById('end').value = `${data.end_node.lat.toFixed(4)},${data.end_node.lng.toFixed(4)}`;
+                }
+
+                // 地図の表示範囲を調整
+                map.fitBounds(routeLine.getBounds());
+
+                // 経路情報を表示
+                let routeInfo = '';
+                if (data.best_route) {
+                    routeInfo = `
+                        <div class="risk-score">
+                            <h3>経路情報</h3>
+                            <p>総距離: ${data.best_route.distance.toFixed(2)} km</p>
+                            <p>リスクスコア: ${data.best_route.risk_score}</p>
+                            <p>リスク密度: ${data.best_route.risk_density.toFixed(2)} (1kmあたりのリスク)</p>
+                            <p>リスクの重み: ${alpha}</p>
+                        </div>
+                    `;
+                }
+                document.getElementById('riskScore').innerHTML = routeInfo;
+                
+                // リスクスコアに応じて色を変更
+                const riskScoreElement = document.getElementById('riskScore');
+                if (data.best_route) {
+                    const riskDensity = data.best_route.risk_density;
+                    if (riskDensity > 2.0) {
+                        riskScoreElement.classList.add('high-risk');
+                        riskScoreElement.classList.remove('medium-risk', 'low-risk');
+                    } else if (riskDensity > 1.0) {
+                        riskScoreElement.classList.add('medium-risk');
+                        riskScoreElement.classList.remove('high-risk', 'low-risk');
+                    } else {
+                        riskScoreElement.classList.add('low-risk');
+                        riskScoreElement.classList.remove('high-risk', 'medium-risk');
+                    }
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('エラーが発生しました。');
+            });
+        }
+
+        // ボタンのクリックイベントを設定
+        document.getElementById('searchButton').addEventListener('click', function(e) {
+            e.preventDefault();  // フォームのデフォルト送信を防止
+            console.log('Button clicked');  // デバッグログ
+            searchRoute();
+        });
+    </script>
+</body>
+</html> 
