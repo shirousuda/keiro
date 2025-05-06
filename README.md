@@ -47,4 +47,13 @@ python app.py
 
 ## ライセンス
 
-MIT License 
+このプロジェクトはMITライセンスの下で公開されています。詳細は[LICENSE](LICENSE)ファイルを参照してください。
+
+また、このプロジェクトは以下のライブラリとデータを使用しています：
+
+- OpenStreetMap (ODbL License)
+- Leaflet.js (BSD-2-Clause License)
+- Bootstrap (MIT License)
+- 警察庁交通事故統計データ
+
+各ライブラリとデータの詳細なライセンス情報は[LICENSE](LICENSE)ファイルを参照してください。 
